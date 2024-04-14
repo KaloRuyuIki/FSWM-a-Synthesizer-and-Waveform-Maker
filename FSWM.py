@@ -1,9 +1,116 @@
-from store import *
+#modules
+import scipy.io.wavfile as wav
+from scipy import fft
+import matplotlib.pyplot as plt
+import numpy as np
+import tkinter as tk
+import tkinter.filedialog as fd
+import parselmouth as prt
+import os
+import types
+from pydub import AudioSegment
+#from librosa.effects import pitch_shift as ps
+import regex as re
+import pyaudio as pad
+import wave
+import random as rd
+import struct as st
+import pygame as pyg
+import time
+import ctypes
+import types
+from xml import sax
+##import re
+##import midiutil.MidiFile as mdf
+
+#constants
+__product__ = "FSWM: a Synthesizer & WAV-file Maker"
+__version__ = "0.4.1"
+PI=np.pi
+TAU=2*np.pi
+INT=np.int32
+SRT=np.int8
+AMPL=np.iinfo(INT).max
+INF=float('inf')
+
+#pretreatment
+plt.ion()
+ctypes.windll.shcore.SetProcessDpiAwareness(1)
+
+#define
+
+def filesuf(file,suf):
+    return file if file.endswith(suf) else file+suf
+def towav(file,res):
+    f=AudioSegment.from_file(file)
+    f.export(res if res[-4:]=='.wav' else res+'.wav','wav')    
+def record(filen,time,device=None,track=1,rate=44100):
+    filen=filen if filen[-4:]=='.wav' else filen+'.wav'
+    pa=pad.PyAudio()
+    devi=None
+    if device=='PC':
+        for i in range(pa.get_device_count()):
+            d=pa.get_device_info_by_index(i)
+            if '立体声混音' in d['name']:
+                devi=i
+                break
+    chunk = 1024 
+    sample_format = pad.paInt32
+    stream = pa.open(format=sample_format, channels=track,
+                     rate=rate, input=True,
+                     input_device_index=devi,
+                     frames_per_buffer=chunk)
+    print("Record")
+    frames = []
+    for i in range(0, int(rate / chunk * time)):
+        data = stream.read(chunk)
+        frames.append(data)
+    stream.stop_stream()
+    stream.close()
+    pa.terminate()
+    print('Done')
+    with wave.open(filen, 'wb') as sf:
+        sf.setnchannels(track)
+        sf.setsampwidth(pa.get_sample_size(sample_format))
+        sf.setframerate(rate)
+        sf.writeframes(b''.join(frames))
+        
+class FehError(Exception):
+    '''The Exception of FehWAVMaker'''
+    
+class FreqCalcNum:
+    def __init__(self,eqtp=12,do=0,do_oct=-1,A=440):
+        """
+        if eqpt==12:
+            do=0  A 440
+            do=3  C 
+        """
+        self.A=A
+        self.e=eqtp
+        if not 0<=do<eqtp:raise FehError("%d超过了%d平均律的范围" % (do,eqtp))
+        self.do=A*2**(do/eqtp+do_oct)
+    __repr__=__str__=lambda self:'(A=%.2f,do=%.2f,eq=%d)'%(self.A,self.do,self.e)
+    def num2freq(self,i,o=0):
+        if not 0<=i<self.e:raise FehError("%d超过了%d平均律的范围" % (i,self.e))
+        return round(self.do*2**(o+i/self.e),10)
+class FreqCalcANSI(FreqCalcNum):
+    def __init__(self,notes,A=440):
+        self.notes,self.C=notes,notes.index('C')
+        super().__init__(len(notes),self.C,-1,A)
+    def ansi2freq(self,note,m=0):
+        if note=='O':return 0
+        return self.num2freq((self.notes.index(note)-self.C)%len(self.notes),m)
+spfc={12:FreqCalcANSI(['A','A#','B','C','C#','D','D#','E','F','F#','G','G#']),
+      19:FreqCalcANSI(['A','A#','Bb','B','B#','C','C#','Db','D','D#',
+                     'Eb','E','E#','F','F#','Gb','G','G#','Ab']),
+      24:FreqCalcANSI(['A','A_','A#','Bd','B','B_','C','C_','C#','Dd','D','D_',
+                       'D#','Ed','E','E_','F','F_','F#','Gd','G','G_','G#','Ad'])
+      }
+fc=spfc[12]
 """
 构想：
 
 """
-NINF=-255
 def dbtran(dB,base=1):
     return 10**(dB/20)*base
 def revdb(n,base=1):
@@ -89,15 +196,24 @@ class Operator(metaclass=FMeta):
     @classmethod
     def formula(cls,f,items,*ag,**kw):
         return cls([f(i) for i in range(0,items+1)],*ag,**kw)
-a=Operator.formula(lambda k:(0 if k%2==0 else 1/k),64,
-                   env=Envelope(NINF,0 ,0,1,-6,1))
-b=Operator.formula(lambda k:1,1,env=Envelope(NINF,1,0,1,-6,2.5))
-b2=Operator.formula(lambda k:1,1,output=0)
-c=Operator.formula(lambda k:1,1,output=0,env=Envelope(NINF,2,20,1,7,1))
+class Synthesizer(metaclass=FMeta):
+    def __init__(self,op,gr):
+        
+    def __str__(self):
+        pass
+    def __call__(self,frq,sec,rate=44100):
+        pass
+Modu041=Synthesizer([Operator.formula(lambda k:(0 if k%2==0 else 1/k),64,
+                                      env=Envelope(NINF,0 ,0,1,-6,1)),
+                     Operator.formula(lambda k:1,1,output=0,
+                                      env=Envelope(NINF,2,20,1,7,1))
+                     ],
+                    [(2,1,'FM'),(1,0,'MIX')]
+                    )
 
 sec,tot=4,7
-r=a(440,sec,tot,c(440,sec,tot))
-wav.write("Env041.wav",44100,(r*AMPL).astype(INT))
+r=a(440,sec,tot)*c(440*2,sec,tot)
+wav.write("Env041_2.wav",44100,(r*AMPL).astype(INT))
 '''
 plt.subplots()
 plt.plot(np.linspace(0,tot,int(tot*44100)),r)
