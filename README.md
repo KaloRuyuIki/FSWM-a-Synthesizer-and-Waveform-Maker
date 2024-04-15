@@ -7,4 +7,6 @@
 
 文件含义：
 * Test: 测试用的文件
-* 
+* FSWM.py: 代码
+* KEYBOARD.py: 键盘(19平均律)
+* store.py: 存储一些不需要的代码s
