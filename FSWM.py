@@ -1,17 +1,10 @@
-#modules
+#模块
 import scipy.io.wavfile as wav
 from scipy import fft
 import matplotlib.pyplot as plt
 import numpy as np
-import tkinter as tk
-import tkinter.filedialog as fd
 import parselmouth as prt
 import os
-import types
-from pydub import AudioSegment
-#from librosa.effects import pitch_shift as ps
-import regex as re
-import pyaudio as pad
 import wave
 import random as rd
 import struct as st
@@ -23,7 +16,7 @@ from xml import sax
 ##import re
 ##import midiutil.MidiFile as mdf
 
-#constants
+#一些常数
 __product__ = "FSWM: a Synthesizer & WAV-file Maker"
 __version__ = "0.4.1"
 PI=np.pi
@@ -32,51 +25,14 @@ INT=np.int32
 SRT=np.int8
 AMPL=np.iinfo(INT).max
 INF=float('inf')
+NINF=-255
 
-#pretreatment
+#预处理
 plt.ion()
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
-
-#define
-
-def filesuf(file,suf):
-    return file if file.endswith(suf) else file+suf
-def towav(file,res):
-    f=AudioSegment.from_file(file)
-    f.export(res if res[-4:]=='.wav' else res+'.wav','wav')    
-def record(filen,time,device=None,track=1,rate=44100):
-    filen=filen if filen[-4:]=='.wav' else filen+'.wav'
-    pa=pad.PyAudio()
-    devi=None
-    if device=='PC':
-        for i in range(pa.get_device_count()):
-            d=pa.get_device_info_by_index(i)
-            if '立体声混音' in d['name']:
-                devi=i
-                break
-    chunk = 1024 
-    sample_format = pad.paInt32
-    stream = pa.open(format=sample_format, channels=track,
-                     rate=rate, input=True,
-                     input_device_index=devi,
-                     frames_per_buffer=chunk)
-    print("Record")
-    frames = []
-    for i in range(0, int(rate / chunk * time)):
-        data = stream.read(chunk)
-        frames.append(data)
-    stream.stop_stream()
-    stream.close()
-    pa.terminate()
-    print('Done')
-    with wave.open(filen, 'wb') as sf:
-        sf.setnchannels(track)
-        sf.setsampwidth(pa.get_sample_size(sample_format))
-        sf.setframerate(rate)
-        sf.writeframes(b''.join(frames))
         
 class FehError(Exception):
-    '''The Exception of FehWAVMaker'''
+    '''The Exception of FSWM'''
     
 class FreqCalcNum:
     def __init__(self,eqtp=12,do=0,do_oct=-1,A=440):
@@ -87,19 +43,29 @@ class FreqCalcNum:
         """
         self.A=A
         self.e=eqtp
-        if not 0<=do<eqtp:raise FehError("%d超过了%d平均律的范围" % (do,eqtp))
+        if not 0<=do<eqtp:
+            raise FehError("%d超过了%d平均律的范围" % (do,eqtp))
         self.do=A*2**(do/eqtp+do_oct)
-    __repr__=__str__=lambda self:'(A=%.2f,do=%.2f,eq=%d)'%(self.A,self.do,self.e)
-    def num2freq(self,i,o=0):
-        if not 0<=i<self.e:raise FehError("%d超过了%d平均律的范围" % (i,self.e))
-        return round(self.do*2**(o+i/self.e),10)
+    __repr__=__str__=lambda self:'(A=%.2f,do=%.2f,eq=%d)'%(self.A,
+                                                           self.do,
+                                                           self.e)
+    def t2n(self,i,o=0):
+        if not 0<=i<self.e:
+            raise FehError("%d超过了%d平均律的范围" % (i,self.e))
+        return o+i/self.e
+    def n2f(self,n):
+        return round(self.do*2**(n),10)
+    def t2f(self,i,o=0):
+        return self.n2f(self.t2n(i,o))
 class FreqCalcANSI(FreqCalcNum):
     def __init__(self,notes,A=440):
         self.notes,self.C=notes,notes.index('C')
         super().__init__(len(notes),self.C,-1,A)
-    def ansi2freq(self,note,m=0):
+    def a2t(self,note,m=0):
+        return (self.notes.index(note)-self.C)%len(self.notes),m
+    def a2f(self,note,m=0):
         if note=='O':return 0
-        return self.num2freq((self.notes.index(note)-self.C)%len(self.notes),m)
+        return self.t2f(*self.a2t(note,m))
 spfc={12:FreqCalcANSI(['A','A#','B','C','C#','D','D#','E','F','F#','G','G#']),
       19:FreqCalcANSI(['A','A#','Bb','B','B#','C','C#','Db','D','D#',
                      'Eb','E','E#','F','F#','Gb','G','G#','Ab']),
@@ -107,10 +73,8 @@ spfc={12:FreqCalcANSI(['A','A#','B','C','C#','D','D#','E','F','F#','G','G#']),
                        'D#','Ed','E','E_','F','F_','F#','Gd','G','G_','G#','Ad'])
       }
 fc=spfc[12]
-"""
-构想：
 
-"""
+#大量的主代码
 def dbtran(dB,base=1):
     return 10**(dB/20)*base
 def revdb(n,base=1):
@@ -131,7 +95,7 @@ class FMeta(type):#一个将__repr__设为和__str__一样的元类
         return type.__new__(cls, name, bases, dict)
 class Envelope(metaclass=FMeta):#包络
     def __init__(self,i=0,a=0,p=0,d=0,s=0,r=0,
-                 ip=make_line,ps=make_db,sr=make_cubic):
+                 ip=make_line,ps=make_cubic,sr=make_cubic):
         self.p=(i,a,p,d,s,r)
         self.f=(ip,ps,sr)
     def __str__(self):
@@ -144,7 +108,9 @@ class Envelope(metaclass=FMeta):#包络
         ser=int(sec*rate)
         if tot is None or tot<sec+self.p[5]:#总时长不够就加
             tot=sec+self.p[5]
+        tot=round(tot,10)
         ful=int(tot*rate)
+        #print(tot,ful,sec,ser)
         X=np.zeros(ful)
         att=self.f[0](i,p,a)#起音->衰减
         dec=self.f[1](p,s,d)#衰减->延时
@@ -153,7 +119,7 @@ class Envelope(metaclass=FMeta):#包络
         else:
             X[:a]=att
             sed=ser-a
-            if ser<d:#发音时长不足以衰减
+            if sed<d:#发音时长不足以衰减
                 X[a:a+sed]=dec[:sed]
             else:
                 X[a:a+d]=dec
@@ -161,61 +127,150 @@ class Envelope(metaclass=FMeta):#包络
         X[ser:ser+r]=self.f[2](s,NINF,r)#释放
         return X
 class Filter(metaclass=FMeta):
-    def __init__(self,t,c,r,d,e=Envelope()):
-        self.t,self.c,self.r,self.d,self.e=t,c,r,d,e
+    def __init__(self,typ=0,cen=0,rel=0,dif=0,env=Envelope()):
+        self.t,self.c,self.r,self.d,self.e=typ,cen,rel,dif,env
     def __str__(self):
         return "Filter(%d, %.3f, %.3f, %.3f, %s)"%(self.t,self.c,self.r,
                                                    self.d,self.e)
-    def __call__(self,sec,tot=None,rate=44100):
+    def getseqt1(self,frq,num,sec,tot=None,rate=44100):
+        pass
+    def getseqt2(self,frq,num,sec,tot=None,rate=44100):
+        pass
+    def __call__(self,frq,num,sec,tot=None,rate=44100):
         pass
 class Operator(metaclass=FMeta):
-    def __init__(self,frq,output=-20,env=Envelope()):
-        self.f,self.o,self.e=frq,output,env
+    def __init__(self,frqs,output=-20,
+                 freqmul=1,fixed=None,
+                 flt=None,env=Envelope()):
+        self.f,self.o,self.e=frqs,output,env
+        self.fx,self.fm=fixed,freqmul
     def __str__(self):
         pref='['+', '.join('%.3f'%i for i in self.f)+']'
         return ('Operator('
-                'frq=%s,'%pref+
-                'output=%.3fdB,'%self.o+
+                'frq=%s, '%pref+
+                'output=%.3fdB ,'%self.o+
+                'freqmul=%.3f, '%self.fm+
+                'fixed=%s, '%(None if self.fx is None else "%.3fHz"%self.fx)+
                 'env=%s)'%self.e)
+    @property
+    def rel(self):
+        return self.e.p[5]
     def __call__(self,frq,sec,tot=None,fm=None,rate=44100):
-        see=sec+self.e.p[5]#加上释放的时长
+        #频率相关
+        if self.fx is not None:
+            frq=self.fx
+        frq*=self.fm
+        
+        see=round(sec+self.rel,10)#加上释放的时长
         ser=int((see)*rate)
-        if tot is None or tot<sec:#总时长不够就加
-            tot=sec
+        if tot is None or tot<see:#总时长不够就加
+            tot=see
+        tot=round(tot,10)
         ful=int(tot*rate)
+        #print(tot,ful,see,ser)
+        
         if fm is None:#没有可用于调频的
             fm=np.zeros(ful)
+        else:
+            if ful<len(fm):#调频的超出了目前可用的时间
+                tot=len(fm)/rate
+                ful=len(fm)
+            else:#没达到
+                ffm=np.zeros(ful)
+                ffm[:len(fm)]=fm
+                fm=ffm
+                
         X=np.zeros(ful)
         X[:ser]=np.linspace(0,see,ser)
         #Add
         R=np.zeros(ful)
         for x,i in enumerate(self.f):
-            R+=np.sin(x*(TAU*X*frq+fm))*i
-        R*=self.e(sec,tot)*dbtran(self.o)
+            R+=np.sin((x+1)*(TAU*X*frq+fm))*i
+        R*=self.e(sec,tot,rate)*dbtran(self.o)
         return R
     @classmethod
     def formula(cls,f,items,*ag,**kw):
-        return cls([f(i) for i in range(0,items+1)],*ag,**kw)
+        return cls([f(i) for i in range(1,items+1)],*ag,**kw)
 class Synthesizer(metaclass=FMeta):
     def __init__(self,op,gr):
-        
+        self.o,self.g=op,gr
+        self.t=self.topo()
+        if self.t:
+            if self.t[-1]==0:
+                self.rel=max(i.rel for i in self.o)
+            else:
+                raise FehError("结尾必须是0")
+        else:
+            raise FehError("有环")
+    def topo(self):
+        v,g=len(self.o)+1,self.g
+        self.v=v
+        a=[[] for i in range(v)]
+        d=[0]*v
+        for x,y in g:
+            a[x].append(y)
+            d[y]+=1
+        q=[]
+        for i in range(v):
+            if d[i]==0:
+                q.append(i)
+        t=[]
+        while len(q):
+            i=q.pop(0)
+            t.append(i)
+            for j in a[i]:
+                d[j]-=1
+                if d[j]==0:
+                    q.append(j)
+        if not any(d):
+            self.nex=a
+            return t
     def __str__(self):
-        pass
+        return 'Synthesizer(%s, %s)'%(self.o,self.g)
     def __call__(self,frq,sec,rate=44100):
-        pass
-Modu041=Synthesizer([Operator.formula(lambda k:(0 if k%2==0 else 1/k),64,
-                                      env=Envelope(NINF,0 ,0,1,-6,1)),
-                     Operator.formula(lambda k:1,1,output=0,
-                                      env=Envelope(NINF,2,20,1,7,1))
-                     ],
-                    [(2,1,'FM'),(1,0,'MIX')]
-                    )
+        tot=round(sec+self.rel,10)
+        fms=np.zeros((self.v,int(tot*rate)))
+        #print(self.t)
+        for i in self.t[:-1]:
+            r1=self.o[i-1](frq,sec,tot,fms[i],rate)
+            for j in self.nex[i]:
+                fms[j]+=r1
+        return fms[0]
+class Maker:
+    def __init__(self,name,bpm=120,rate=44100):
+        self.n,self.b,self.r=name,bpm,rate
+        self.t=np.zeros((2,1))
+    def write(self,tmb,frq,sec,dur,left=1,right=1):
+        sec*=60/self.b
+        dur*=60/self.b
+        a=tmb(frq,dur)
+        at=int(sec*self.r)
+        al=at+len(a)
+        bef=self.t.shape[1]
+        if bef<al:
+            self.t=np.concatenate((self.t,np.zeros((2,al-bef))),1)
+        self.t[0,at:al]+=a*left
+        self.t[1,at:al]+=a*right
+    def save(self):
+        wav.write(self.n,self.r,(self.t.T*AMPL).astype(INT))
+squ=Operator.formula(lambda k:(0 if k%2==0 else 1/k),64,
+                     output=-16,
+                     )
+sin=Operator([1],fixed=10,output=-10)
+saw=Operator.formula(lambda k:1/k,64,output=3)
+squ=Synthesizer([squ,sin],[(2,1),(1,0)]) 
+m=Maker("Method.wav",125)
+m.write(squ,fc.a2f("C#",+0),0,1)
+m.write(squ,fc.a2f("A#",-1),1,1)
+m.write(squ,fc.a2f("F",+0),2,2)
+m.write(squ,fc.a2f("C#",+0),4,1)
+m.write(squ,fc.a2f("A#",-1),5,0.5)
+m.write(squ,fc.a2f("F",+0),5.5,2.5)
+m.write(squ,fc.a2f("C#",+0),8,1)
+m.write(squ,fc.a2f("A#",-1),9,1)
+m.write(squ,fc.a2f("F",+0),10,2)
+m.write(squ,fc.a2f("C#",+0),12,1)
+m.write(squ,fc.a2f("A#",-1),13,0.5)
+m.write(squ,fc.a2f("F",+0),13.5,2.5)
+m.save()
 
-sec,tot=4,7
-r=a(440,sec,tot)*c(440*2,sec,tot)
-wav.write("Env041_2.wav",44100,(r*AMPL).astype(INT))
-'''
-plt.subplots()
-plt.plot(np.linspace(0,tot,int(tot*44100)),r)
-plt.show()
-#'''
