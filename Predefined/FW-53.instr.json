@@ -1,0 +1,30 @@
+{
+    "type":"synth",
+    "operators":[
+        {
+            "type":"harmonics",
+            "content":{
+                "function":"sin",
+                "harmonics":[1]
+            },
+            "envelope":[0,0.001,
+                        0,1,
+                        -12,0.05],
+            "envelope_db":[false,true,true],
+            "output":0.5,
+            "output_db":false,
+            "feedback":0.4
+        }
+    ],
+    "graph":[
+        [1,0]
+    ],
+    "fixed":true,
+    "fixed_freq":0,
+    "pitch_type":"freq",
+    "pitch_env":[160,0.4,
+                 42,0.001,
+                 42,0.001,
+                 42],
+    "pitch_function":[1,0,0]
+}

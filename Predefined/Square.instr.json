@@ -1,0 +1,14 @@
+{
+    "mode":"synth",
+    "operators":[
+        {"type":"formula",
+            "content":{
+                "name":"square",
+                "items":64
+            }
+        }
+    ],
+    "graph":[
+        [1,0]
+    ]
+}

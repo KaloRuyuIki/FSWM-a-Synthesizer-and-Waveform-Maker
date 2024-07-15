@@ -1,0 +1,21 @@
+{
+    "mode":"simple",
+    "data":{
+        "bpm":137,
+        "beats":4,
+        "ticks":4
+    },
+    "instrument":[
+        
+    ],
+    "keyboards":{
+
+    },
+    "blocks":[
+        {
+            "begin":"0s",
+            "length":"4.0.0b137t4r4"
+
+        }
+    ]
+}

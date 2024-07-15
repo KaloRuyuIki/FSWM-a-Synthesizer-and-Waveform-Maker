@@ -1,0 +1,27 @@
+{
+	"mode":"synth",
+	"operators":[
+		{
+			"type":"formula",
+			"content":{
+				"name":"square",
+				"items":64
+			},
+			"output":-16,
+			"envelope":[0,0,0,1.5,-255,0]
+		},
+		{
+			"type":"harmonics",
+			"content":{
+				"function":"sin",
+				"harmonics":[1]
+			},
+			"fixed":20,
+			"output":10
+		}
+	],
+	"graph":[
+		[2,1],
+		[1,0]
+	]
+}
