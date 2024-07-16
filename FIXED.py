@@ -25,6 +25,12 @@ FONT2=('微软雅黑',10)
 #plt.ion()
 #pmd.init()
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
+w=tk.Tk()
+ic=imt.PhotoImage(im.open('icon.png'))
+w.wm_iconphoto(True,ic)
+w.title('FSWM v%s --by HYWY/FST/WWPE'%__version__)
+w.geometry('800x600+50+50')
+w.resizable(0,0)
 
 def dbtran(dB):
     return 10**(dB/20)
@@ -35,10 +41,8 @@ class Keyboard(tk.Canvas):
                  keyname:dict[str,dict]={},
                  highlight:dict[str,list]={},
                  master=None):
-        if master is not None:
-            super().__init__(master,background='#D7D8E0')
         self.t,self.a,self.k,self.h=tet,a,keyname,highlight
-    def get(self,key,octave=0,tonic=0):
+    def __call__(self,key,octave=0,tonic=0):
         return self.a*2**((key+tonic)/self.t+octave)
     def obj(self):
         return {'tet':self.t,'a':self.a,'keyname':self.k,'highlight':self.h}
@@ -58,17 +62,11 @@ class Pitch:
         assert env.r!=0
         v,f={0:env.i,-1:env.e},[env.fip]
         if sec<env.a:
-            if typ=='freq':
-                v[sec]=cls.getx(env.i,env.p,env.a,sec,env.fip)
-            elif typ=='step':
-                v[sec]=cls.getx(env.i,env.p,env.a,sec,0)
+            v[sec]=cls.getx(env.i,env.p,env.a,sec,env.fip)
             f.append(env.fse)
         elif sec<env.a+env.d:
             v[env.a]=env.p
-            if typ=='freq':
-                v[sec]=cls.getx(env.p,env.s,env.d,sec,env.fps)
-            elif typ=='step':
-                v[sec]=cls.getx(env.p,env.s,env.d,sec,0)
+            v[sec]=cls.getx(env.p,env.s,env.d,sec,env.fps)
             f.extend([env.fps,env.fse])
         else:
             v[env.a],v[env.a+env.d],v[sec]=env.p,env.s,env.s
@@ -78,15 +76,11 @@ class Pitch:
         return cls(v,f,typ)
     def __init__(self,
                  values:dict[float,float]={0:440,-1:440},
-                 functions:list[int]=[1],
-                 typ:str='freq',
-                 tet=12):
-        if typ=='freq':
-            assert len(values)==len(functions)+1
-        self.v,self.f,self.t=values,functions,typ
-        self.tet=tet
+                 functions:list[int]=[1]):
+        assert len(values)==len(functions)+1
+        self.v,self.f=values,functions
     def __str__(self):
-        return 'Pitch(%s, %s, %s)'%(self.v,self.f,self.t)
+        return 'Pitch(%s, %s)'%(self.v,self.f)
     __repr__=__str__
     def chirp(self,a,b,s,l,i):
         match self.f[i]:
@@ -104,128 +98,21 @@ class Pitch:
                     return self.chirp(b,a,s,l,i)[::-1]
                 X=np.linspace(0,s,l)
                 return ((b-a)*2**(X/s)*s+X*np.log(2)*(2*a-b))/np.log(2)
-    def get(self,sec,tot,rate=44100):
-        assert self.t=='freq'
+    def __call__(self,sec,tot,rate=44100):
         RES=np.zeros(int(rate*tot))
         D=self.v.copy()
-        assert max(D)>sec
+        assert max(D)<sec
         D[sec]=D[-1]
         del D[-1]#替换结尾
         vl=sorted(D.keys())
         last=0
         for i in range(len(self.f)):
             bef,aft=vl[i],vl[i+1]
-            bid,aid=int(rate*bef),int(rate*aid)
+            bid,aid=int(rate*bef),int(rate*aft)
             bvl,avl=D[bef],D[aft]
             RES[bid:aid]=self.chirp(bvl,avl,aft-bef,aid-bid,i)+last
             last=RES[aid-1]
         return RES
-    def __add__(self,other):
-        '''
-        {0:400,100:600,200:200,-1:400},[0,1,2]
-        {0:0,50:2,150:-2,200:2,300:-1,-1:-3},typ='step'
-
-        0,0 -> 0:400*2^(0/12)                       []  
-        1,1 -> 50:intp(400,600,100,50,0)*2^(2/12)   [0] 1
-        1,2 -> 100:600*2^(intp(-2,2,100,50,0)/12)   [0] 2
-        2,2 -> 150:intp(600,200,100,50,1)*2^(-2/12) [1] 1
-        2,3 -> 200:200*2^(2/12)                     [1] 5
-        3,4 -> 300:200*2^(-1/12)                    [2] 4
-        3,5 -> -1:400^2^(-3/12)                     [2] 5
-
-        {0:0, 4:2,8:-2,9:-3,-1:1},typ='step'
-        {0:-1,2:1,6:-4,8:7, -1:4},typ='step'
-        0,0 -> 0:-1
-        1,1 -> 2:(0,2,4,2,0)+1  1
-        1,2 -> 4:(1,-4,4,2,0)+2 2
-        2,2 -> 6:(-2,2,4,2,0)-4 1
-        2,3 -> 8:-2+7           5
-        3,4 -> 9:-3+7           3
-        4,4 -> -1:5             5
-        '''
-        if self.t=='freq' and other.t=='step':
-            D1,D2=self.v,other.v
-            K1,K2=sorted(D1.keys())[1:]+[-1],sorted(D2.keys())[1:]+[-1]
-            l1,l2=len(D1),len(D2)
-            i1,i2=1,1
-            RES={0:D1[0]*2**(D2[0]/other.tet)}
-            FUN=[]
-            TET=other.tet
-            while i1<l1 and i2<l2:
-                k1,k2,j1,j2=K1[i1],K2[i2],K1[i1-1],K2[i2-1]#时间点
-                d1,d2,c1,c2=D1[k1],D2[k2],D1[j1],D2[j2]#旧值
-                FUN.append(self.f[i1-1])
-                if k1>k2:
-                    if k2==-1:#3
-                        RES[k1]=d1*2**(c2/TET)
-                        i1+=1
-                    else:#1
-                        RES[k2]=self.getx(c1,d1,k1-j1,k2-j1,self.f[i1-1])*2**(d2/TET)
-                        i2+=1
-                elif k1<k2:
-                    if k1==-1:#4
-                        RES[k2]=c1*2**(d2/TET)
-                        i2+=1
-                    else:#2
-                        RES[k1]=d1*2**(self.getx(c2,d2,k2-j2,k1-j2,0)/TET)
-                        i1+=1
-                else:#5
-                    RES[k1]=d1*2**(d2/TET)
-                    i1+=1
-                    i2+=1
-            return Pitch(RES,FUN)
-        elif self.t=='step' and other.t=='freq':
-            return other+self
-        elif self.t==other.t=='step':
-            D1,D2=self.v,other.v
-            K1,K2=sorted(D1.keys())[1:]+[-1],sorted(D2.keys())[1:]+[-1]
-            l1,l2=len(D1),len(D2)
-            i1,i2=1,1
-            RES={0:D1[0]*2**(D2[0]/other.tet)}
-            FUN=[]
-            TET=other.tet
-            while i1<l1 and i2<l2:
-                k1,k2,j1,j2=K1[i1],K2[i2],K1[i1-1],K2[i2-1]#时间点
-                d1,d2,c1,c2=D1[k1],D2[k2],D1[j1],D2[j2]#旧值
-                if k1>k2:
-                    if k2==-1:#3
-                        RES[k1]=d1+c2
-                        i1+=1
-                    else:#1
-                        RES[k2]=self.getx(c1,d1,k1-j1,k2-j1,0)+d2
-                        i2+=1
-                elif k1<k2:
-                    if k1==-1:#4
-                        RES[k2]=c1+d2
-                        i2+=1
-                    else:#2
-                        RES[k1]=d1+self.getx(c2,d2,k2-j2,k1-j2,0)
-                        i1+=1
-                else:#5
-                    RES[k1]=d1+d2
-                    i1+=1
-                    i2+=1
-            return Pitch(RES,FUN,'step')
-        elif self.t==other.t=='freq':
-            return PitchGroup(self,other)
-        return NotImplemented
-class PitchGroup:
-    def __init__(self,*args):
-        assert all(i.t=='freq' for i in args)
-        self.p=args
-        self.t='group'
-    def get(self,sec,tot,rate=44100):
-        RES=np.zeros(int(rate*tot))
-        for i in self.p:
-            RES+=i.get(sec,tot,rate)
-        return RES
-    def __add__(self,other):
-        if other.t=='group':
-            return PitchGroup(*self.p,*other.p)
-        elif other.t=='freq':
-            return PitchGroup(*self.p,other.p)
-        else:
-            return PitchGroup(*(i+other for i in self.p))
 class Envelope(tk.Frame):
     '''
     a=Envelope(-255,0.2,0,1,-6,0.5)
@@ -249,7 +136,7 @@ class Envelope(tk.Frame):
         self.i,self.p,self.s,self.e=i,p,s,e
         self.a,self.d,self.r=a,d,r
         self.fip,self.fps,self.fse=fip,fps,fse
-    def get(self,sec,tot,rate=44100):
+    def __call__(self,sec,tot,rate=44100):
         RES=np.zeros(int(tot*rate))
         S=int(sec*rate)
         A,D,R=int(self.a*rate),int(self.d*rate),int(self.r*rate)
@@ -276,14 +163,13 @@ class Operator(tk.Frame):
           }
     def __init__(self,freqs,func=np.sin,
                  fixed=None,mul=1.0,
-                 output=-20,env=Envelope(),
+                 output=1,env=Envelope(),
                  phase=0,feedback=0):
         self.fq,self.fc=freqs,func
         self.fx,self.m=fixed,mul
         self.o,self.e=output,env
         self.ph,self.fd=phase,feedback
-        self.p,self.pt=pitch,pitch_type
-    def get(self,pit,sec,tot=None,fm=None,feed=True,rate=44100):
+    def __call__(self,pit,sec,tot=None,fm=None,feed=True,rate=44100):
         if tot is None:
             tot=sec+self.e.r
         LEN=int(tot*rate)
@@ -291,14 +177,61 @@ class Operator(tk.Frame):
         if fm is None:
             fm=np.zeros(LEN)
         if feed:
-            fm+=self.get(pit,sec,tot,fm,False,rate)*self.fd
+            fm+=self(pit,sec,tot,fm,False,rate)*self.fd
         if self.fx:
             pit=Pitch({0:self.fx,-1:self.fx},[0])
-        X=pit.get(sec,tot)*self.m
+        X=pit(sec,tot)*self.m
         for x,i in enumerate(self.fq):
             RES+=self.fc(TAU*((x+1)*X+fm+self.ph))*i
-        return RES*self.e.get(sec,tot,rate)*self.o
+        return RES*self.e(sec,tot,rate)*self.o
     @classmethod
     def formula(cls,name,length,**kwargs):
         return cls([cls.form[name](i) for i in range(1,length+1)],
                    **kwargs)
+class FFT_EQ(tk.Frame):
+    def __init__(self,*para:tuple[int,float,float]):
+        self.p=para
+    def __call__(self,arr,rate=44100):
+        for t,c,g in self.p:
+            if t in (0,1,2,3):
+                []
+class Synthesizer(tk.Frame):
+    def __init__(self,ops,graph,
+                 output=1,env=Envelope(),
+                 filt=FFT_EQ()):
+        self.op=ops
+        self.rel=max(*(i.e.r for i in ops),env.r)
+        self.gr=graph
+        self.topo()
+        self.o,self.e=output,env
+        self.f=filt
+    def topo(self):
+        self.v=v=len(self.op)+1
+        IND=[0]*(v)
+        self.nex=NEX=[[] for i in range(v)]
+        for x,y in self.gr:
+            NEX[x].append(y)
+            IND[y]+=1
+        q=[]
+        for x,i in enumerate(IND):
+            if i==0:
+                q.append(x)
+        self.tp=t=[]
+        while len(q):
+            i=q.pop()
+            t.append(i)
+            for j in NEX[i]:
+                IND[j]-=1
+                if IND[j]==0:
+                    q.append(j)
+        assert not any(IND)
+        assert t[-1]==0
+    def __call__(self,pit,sec,rate=44100):
+        tot=sec+self.rel
+        FM=np.zeros((self.v,int(tot*rate)))
+        for i in self.tp[:-1]:
+            R=self.op[i-1](pit,sec,tot,FM[i],rate=rate)
+            for j in self.nex[i]:
+                FM[j]+=R
+        return FM[0]*self.e(sec,tot,rate)*self.o
+__all__=list(globals().keys())

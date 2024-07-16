@@ -1,15 +1,4 @@
 from FIXED import *
-class EQ(tk.Frame):
-    pass
-class Synthesizer(tk.Frame):
-    def __init__(self,ops,graph
-                 fixed=None,mul=1.0,
-                 output=-20,env=Envelope(),
-                 pitch=Envelope(0,0.001,0,0.001,0,0.001,0,0,0,0),
-                 pitch_type='step',
-                 filter=EQ()
-                 ):
-        pass
 
 class OneDSpectrogram(tk.Canvas):
     pass
@@ -32,12 +21,19 @@ class NormalBlock(tk.Frame):
     def __init__(self,master,impt=(120,4,4),length=(10,0,0),begin=(0,0,0),
                  keybd=None,inst=None,note=None):
         super().__init__(master)
-'''    
-w=tk.Tk()
-ic=imt.PhotoImage(im.open('icon.png'))
-w.wm_iconphoto(True,ic)
-w.title('FSWM v%s --by HYWY/FST/WWPE'%__version__)
-w.geometry('1120x630+700+50')
-w.resizable(0,0)
-w.mainloop()
+
+A1=Synthesizer([Operator([i/100 for i in [86,100,100,86,86,86,86,71,
+			  71,71,71,71,71,71,71,71,71,
+			  57,57,57,57,57,57,57,57,57,
+			  57,57]])],
+               [[1,0]],
+               output=0.05)
+RES=np.zeros(44100*100)
+RES[:4*44100]+=A1(Pitch(),4)
+plt.ion()
+plt.plot(RES)
+RES=(RES*AMPL).astype(INT)
+wav.write('test.wav',44100,RES)
+#w.mainloop()
+w.destroy()
 #'''
